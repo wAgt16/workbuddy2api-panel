@@ -751,11 +751,14 @@ func (h *Handler) chatCompletions(w http.ResponseWriter, r *http.Request) {
 	// 降级裁决：append 在降级期退化为 replace（Rewrite(Degraded)）——append 带
 	// 指纹原文重试是确定性再撞墙，replace 是一次性最小抢救（issue #129 设计 §4）。
 	degradedApplied := false
+	// 降级键 = 客户端 system 提示词指纹（入站原始 body，重写前的值）。
+	// 按指纹分桶：只有真正撞审核的那条提示词被换成中性文本，别的客户端不受牵连。
+	degradeKey := prompt.SystemFingerprint(body)
 	if h.cfg.PromptMode == "custom" && h.cfg.PromptText != "" {
 		body = prompt.Rewrite(body, h.cfg.PromptText)
-	} else if h.cfg.PromptMode == "append" && h.cfg.PromptText != "" && !h.degrade.Active() {
+	} else if h.cfg.PromptMode == "append" && h.cfg.PromptText != "" && !h.degrade.Active(degradeKey) {
 		body = prompt.Append(body, h.cfg.PromptText)
-	} else if (h.cfg.PromptMode == "passthrough" || h.cfg.PromptMode == "append") && h.degrade.Active() {
+	} else if (h.cfg.PromptMode == "passthrough" || h.cfg.PromptMode == "append") && h.degrade.Active(degradeKey) {
 		body = prompt.Rewrite(body, prompt.Degraded)
 		degradedApplied = true
 	}
@@ -952,7 +955,8 @@ func (h *Handler) chatCompletions(w http.ResponseWriter, r *http.Request) {
 			// 第二次仍被拦（用户内容本身触发审核）→ 回内容防火墙错误（见下分支）。
 			// 内容问题非账号问题：applyErrorPolicy 不罚账号（见 ErrContentBlocked 分支）。
 			if kind == upstream.ErrContentBlocked && (h.cfg.PromptMode == "passthrough" || h.cfg.PromptMode == "append") && !degradedApplied {
-				h.degrade.Trigger()
+				// **不在这里记账**：内容拦截可能是用户正文触发的，换中性提示词重试同样会失败；
+				// 只有在重试成功（= 与 system 有关）之后才写降级状态（见下方成功跳）。
 				body = prompt.Rewrite(body, prompt.Degraded)
 				degradedApplied = true
 				delete(tried, acct.UID) // 单账号池也能拿到重试机会（降级重试占一次名额）
@@ -1060,6 +1064,11 @@ func (h *Handler) chatCompletions(w http.ResponseWriter, r *http.Request) {
 				break // ctx 取消：终止轮转（分类错误换号退避）
 			}
 			continue
+		}
+		// 降级重试成功 → 说明这条 system 提示词确实撞了审核，记账：后续同指纹请求直达
+		// Degraded，不再先撞 400（重试失败则说明与 system 无关，不留状态）。
+		if degradedApplied {
+			h.degrade.Trigger(degradeKey)
 		}
 		// 成功判定与粘性绑定一律**延后到这一跳真正成功之后**（见下方流式/非流式分支）：
 		// 上游「200 已开流 + 一帧 error」是真实形态（6004 限流、内容拦截、审核），

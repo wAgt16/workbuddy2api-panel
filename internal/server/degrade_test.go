@@ -44,35 +44,43 @@ func TestNextMidnightCSTCrossMonth(t *testing.T) {
 	}
 }
 
-// TestDegradeGateActiveTriggered Active() 在 Trigger 后为 true，过期后为 false。
-func TestDegradeGateActiveTriggered(t *testing.T) {
+// TestDegradeGatePerKeyIsolation 按 system 提示词指纹分桶：一个指纹降级不影响别的
+// 指纹（2026-10-25 事故回归：全局布尔量会让一条误报打掉全池所有客户端的 system）。
+func TestDegradeGatePerKeyIsolation(t *testing.T) {
 	var g degradeGate
-	if g.Active() {
-		t.Error("fresh gate should not be active")
+	if g.Active("a") || g.Active("b") {
+		t.Fatal("fresh gate should not be active")
 	}
-	g.Trigger()
-	if !g.Active() {
-		t.Error("after Trigger should be active")
+	g.Trigger("a")
+	if !g.Active("a") {
+		t.Error("triggered key should be active")
+	}
+	if g.Active("b") {
+		t.Error("other key must stay untouched")
+	}
+	if g.Active("") {
+		t.Error("empty key (no client system) must never be active")
 	}
 }
 
 // TestDegradeGateTriggerNoRenewal 降级期内再次 Trigger 不续期（保持最早触发点的 00:00 重置）。
 func TestDegradeGateTriggerNoRenewal(t *testing.T) {
 	var g degradeGate
-	g.Trigger()
-	first := func() time.Time {
-		g.mu.Lock()
-		defer g.mu.Unlock()
-		return g.until
-	}()
-	// 再次 Trigger：仍在降级期内，until 不应改变。
-	g.Trigger()
-	second := func() time.Time {
-		g.mu.Lock()
-		defer g.mu.Unlock()
-		return g.until
-	}()
+	g.Trigger("a")
+	first := g.untilOf("a")
+	g.Trigger("a")
+	second := g.untilOf("a")
 	if !first.Equal(second) {
 		t.Errorf("Trigger during active should not renew: first=%v second=%v", first, second)
+	}
+}
+
+// TestDegradeGateEmptyKeyIgnored 空指纹（客户端没发 system）不记账：没有 system 可替换，
+// 降级无意义。
+func TestDegradeGateEmptyKeyIgnored(t *testing.T) {
+	var g degradeGate
+	g.Trigger("")
+	if got := g.untilOf(""); !got.IsZero() {
+		t.Errorf("empty key must not be recorded, got %v", got)
 	}
 }

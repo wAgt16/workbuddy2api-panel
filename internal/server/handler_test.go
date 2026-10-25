@@ -1545,8 +1545,13 @@ func TestContentBlockedStickyDegraded(t *testing.T) {
 	// 降级粘性：新请求 Active()=true，body 已被 Rewrite(Degraded)，上游首字节即 200。
 	// 但 fake 上游只对 firstCall 返回 400，之后都 200，无法区分"直达"与"重试"。
 	// 用 degrade.Active() 直接断言粘性生效。
-	if !h.degrade.Active() {
-		t.Fatal("degrade should be active after trigger")
+	reqBody := `{"model":"glm-5.2","stream":true,"messages":[{"role":"system","content":"x"},{"role":"user","content":"hi"}]}`
+	if !h.degrade.Active(prompt.SystemFingerprint([]byte(reqBody))) {
+		t.Fatal("degrade should be active for the blocked system prompt fingerprint")
+	}
+	// 别的 system 提示词不受牵连（按指纹分桶，2026-10-25 事故回归）。
+	if h.degrade.Active(prompt.SystemFingerprint([]byte(`{"messages":[{"role":"system","content":"other"}]}`))) {
+		t.Fatal("other system prompts must not be degraded")
 	}
 }
 
@@ -1586,7 +1591,7 @@ func TestContentBlockedCustomModeDoesNotDegrade(t *testing.T) {
 	if !strings.Contains(rec.Body.String(), "gateway_hint") {
 		t.Errorf("content_blocked should carry gateway_hint: %s", rec.Body.String())
 	}
-	if h.degrade.Active() {
+	if h.degrade.Active(prompt.SystemFingerprint([]byte(`{"model":"glm-5.2","messages":[{"role":"system","content":"old"},{"role":"user","content":"hi"}]}`))) {
 		t.Error("degrade should NOT be active in custom mode")
 	}
 }

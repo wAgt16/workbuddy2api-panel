@@ -8,10 +8,13 @@
 package prompt
 
 import (
+	"crypto/sha256"
 	_ "embed"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 )
 
 //go:embed defaultprompt.md
@@ -150,4 +153,62 @@ func Append(body []byte, systemPrompt string) []byte {
 		return body
 	}
 	return out
+}
+
+// SystemFingerprint 返回「开头连续 system/developer 块」的内容指纹（sha256 前 8 字节
+// 的 hex，无 system 时返回 "none"，坏 JSON 返回 "unparsable"）。
+//
+// 用途：internal/server/degrade.go 的降级状态按指纹分桶 —— 只有真正撞审核的那条
+// 提示词被换成中性文本，别的客户端（不同 system 提示词，如 dsh 的 agent 指令、
+// 标题生成指令）不受牵连。旧实现是全局布尔量，一条误报就打掉全池所有客户端的
+// system 提示词直到次日 00:00（2026-10-25 实机事故）。
+func SystemFingerprint(body []byte) string {
+	var obj map[string]any
+	if err := json.Unmarshal(body, &obj); err != nil {
+		return "unparsable"
+	}
+	msgs, ok := obj["messages"].([]any)
+	if !ok {
+		return "none"
+	}
+	var sb strings.Builder
+	for _, m := range msgs {
+		mm, ok := m.(map[string]any)
+		if !ok {
+			break
+		}
+		role, _ := mm["role"].(string)
+		if role != "system" && role != "developer" {
+			break
+		}
+		sb.WriteString(flattenContent(mm["content"]))
+		sb.WriteString("\x00")
+	}
+	if sb.Len() == 0 {
+		return "none"
+	}
+	sum := sha256.Sum256([]byte(sb.String()))
+	return hex.EncodeToString(sum[:8])
+}
+
+// flattenContent 把 content 折成纯文本：string 原样；数组只取 text 片段（图片等
+// 非文本片段对指纹无意义，跳过）。
+func flattenContent(content any) string {
+	switch c := content.(type) {
+	case string:
+		return c
+	case []any:
+		var sb strings.Builder
+		for _, part := range c {
+			pm, ok := part.(map[string]any)
+			if !ok {
+				continue
+			}
+			if t, ok := pm["text"].(string); ok {
+				sb.WriteString(t)
+			}
+		}
+		return sb.String()
+	}
+	return ""
 }

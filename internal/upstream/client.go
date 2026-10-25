@@ -175,7 +175,18 @@ func IsAccountRestricted(body string) bool {
 // "request illegal"）。11128 还承载内容审核变体（"blocked by security policy"，
 // 归 ErrContentBlocked），故必须 code + 文案双条件，不能按 code 一刀切。
 func isChannelRefused(body string) bool {
-	if !strings.Contains(strings.ToLower(body), accountRestrictedMsg) {
+	// 两种写法都归通道校验失败：
+	//   - 新形态 "Illegal API invocation from an unapproved channel"（文案唯一，
+	//     不需要 code 佐证，实机 2026-10-25 全池频发）；
+	//   - 旧形态 "request illegal"，必须配 11-128 —— 11140 账号限制共用同一文案
+	//     （见 IsAccountRestricted），只看文案会硬禁用健康账号。
+	lower := strings.ToLower(body)
+	for _, m := range channelRefusedMarkers {
+		if strings.Contains(lower, m) {
+			return true
+		}
+	}
+	if !strings.Contains(lower, accountRestrictedMsg) {
 		return false
 	}
 	return hasBusinessCode(body, "11-128")
@@ -189,6 +200,17 @@ func isChannelRefused(body string) bool {
 // 在 applyErrorPolicy 中不罚账号（无冷却/熔断/NoteError），改由网关降级重试。
 var contentBlockedMarkers = []string{
 	"blocked by security policy",
+}
+
+// channelRefusedMarkers 通道校验失败专属文案（大小写不敏感子串）。
+//
+// 定位：这是**通道 / 客户端指纹**判定，不是内容审核——上游认为请求不像官方
+// 客户端发出的（displayMsg 就是「请求被拦截，请重新发送」）。账号本身健康，
+// 与 ErrContentBlocked 同待遇（不罚号、不冷却），但**绝不能**触发提示词降级：
+// 降级会把客户端 system 提示词整段换成中性文本（internal/server/degrade.go），
+// 一次通道抖动就会打掉全池所有客户端的 system 提示词（2026-10-25 实机事故：
+// 容器启动 1 秒后一条 11-128 让全池标题/agent 提示词失效到次日 00:00）。
+var channelRefusedMarkers = []string{
 	"unapproved channel",
 	"illegal api invocation",
 }
