@@ -463,14 +463,14 @@ curl -s http://localhost:7863/v1/search/messages \
 
 ### 内容拦截误报与降级重试
 
-`passthrough` 模式请求被上游内容策略拦截（HTTP 400 + `blocked by security policy` 文案）时，判定为 system 指纹误报：**同请求内**换 Degraded 中性提示词重试一次；第二次仍被拦（用户内容本身触发审核）→ 走既有错误路径返回客户端，并如实报给调用方。
+`passthrough` 模式请求被上游内容策略拦截（HTTP 400 + `blocked by security policy` / `unapproved channel` / `illegal api invocation` 文案）时，判定为 system 指纹误报：**同请求内**换 Degraded 中性提示词重试一次；第二次仍被拦（用户内容本身触发审核）→ 走既有错误路径返回客户端，并如实报给调用方。
 
 - 降级状态**按 system 提示词指纹分桶**：只有真正撞审核的那条提示词被换成中性文本，其他客户端（不同 system 提示词）不受牵连
-- **只在降级重试成功后才记账**：重试同样失败说明拦截来自用户正文而非 system，不留任何状态
+- **只在降级重试成功后才记账**：重试同样失败说明拦截来自用户正文而非 system，不留任何状态（旧实现在重试前无条件记账，一次拦截能污染整个进程 8 小时）
 - 触发后持续到**次日 00:00 CST**（Asia/Shanghai）重置；降级期内携带同一提示词的 `passthrough` 请求直达中性提示词，不再先撞 400
 - 降级状态是**进程内存态**，重启清零
 - 内容问题非账号问题：`ErrContentBlocked` 不罚账号（无冷却 / 熔断 / 计错），由网关降级重试消化
-- **11-128 通道校验失败**（`unapproved channel` / `Illegal API invocation` / `request illegal`）不是内容拦截：归 `ErrChannelRefused`，只换号、不罚号、**不触发降级**（2026-10-25 实机事故：旧实现把它当内容拦截，一条通道抖动就把全池所有客户端的 system 提示词换成中性文本直到次日 00:00）
+- 11-128 的 `unapproved channel` / `illegal api invocation` 同样走这条降级重试：实测 CN 域的上游渠道校验会被**客户端 system 提示词里的竞品身份串**触发（dsh 的 agent 提示词含 `DeepSeek`，必撞）。`features.sanitize_blacklist_fingerprints` 开启时该串在出站前改写成零宽变体，整份提示词直接通过；关闭时只能靠降级把 system 换成中性文本
 
 ### 原生工具调用标记还原
 

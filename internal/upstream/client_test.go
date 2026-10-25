@@ -49,11 +49,9 @@ func TestClassify(t *testing.T) {
 		{200, `{"code":1,"msg":"too many requests"}`, ErrSoftRate},
 		{500, `rate-limited upstream`, ErrSoftRate}, // 限流文案优先于 5xx 分类
 		// 内容策略拦截（HTTP 400 + 审核文案）：误报信号，不罚账号，走降级重试。
+		{400, `Illegal API invocation from an unapproved channel`, ErrContentBlocked},
 		{400, `{"code":"11-128","msg":"blocked by security policy"}`, ErrContentBlocked},
-		// 11-128 通道校验失败（"unapproved channel" / "Illegal API invocation"）不是
-		// 内容拦截：归 ErrChannelRefused，不罚号、**不触发提示词降级**（2026-10-25 事故）。
-		{400, `Illegal API invocation from an unapproved channel`, ErrChannelRefused},
-		{400, `unapproved channel`, ErrChannelRefused},
+		{400, `unapproved channel`, ErrContentBlocked},
 		// 通用 4xx（非审核文案）：仍判 ErrClient，只换号不罚。
 		{400, `bad request`, ErrClient},
 		// ErrBadParams：请求体解析失败（HTTP 400 + Unmarshal chat params failed / code 11101）。

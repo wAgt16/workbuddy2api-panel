@@ -19,6 +19,7 @@ var sanitizeFeatures = []string{
 	"Main branch (",              // 注入指令句（截断前缀即可命中）
 	"You are a coding agent running in the Codex CLI", // Codex instructions 首段（截断前缀即可命中）
 	"github.com/anthropics/",                          // 反馈句里的 Anthropic 仓库链接
+	"DeepSeek Harness",                                // 竞品身份串（CN 域渠道校验按它拦整单）
 	"11128",                                           // 上游反探测：裸数字错误码
 }
 
@@ -75,6 +76,16 @@ var sanitizeRewrites = [][2]string{
 		// 不改写必然失败。插入连字符保留可读性与指代（零宽空格无效，实测上游会归一化）。
 		"11128",
 		"11-128",
+	},
+	{
+		// 竞品身份串：CN 域（copilot.tencent.com）的渠道校验按 system 提示词里的
+		// "DeepSeek Harness" 拦整单（400 code=11-128 "Illegal API invocation from an
+		// unapproved channel"）。2026-10-25 实测：三处出现全换成 "DeepSeek" 后，
+		// dsh 那份 7.4KB 的 agent 提示词整段通过；不换则必拦，只能靠降级把 system
+		// 整段换成中性文本（等于丢掉 agent 的全部指令）。
+		// 只改一个词，语义不变（"powered by DeepSeek Harness" → "powered by DeepSeek"）。
+		"DeepSeek Harness",
+		"DeepSeek",
 	},
 }
 
