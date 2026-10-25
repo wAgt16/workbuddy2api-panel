@@ -263,6 +263,9 @@ function rateLimitMeta(row, now) {
       title: model + '\n模型当前不可用' + (deadline ? '\n最早重试：' + fmtLocalDateTime(deadline) : ''),
     };
   }
+  // detail 必须在两个分支前声明：本文件是 'use strict' 脚本，漏了 let 会在
+  // 赋值处抛 ReferenceError（整张账号池表格随之渲染中断）。
+  let detail;
   const title = [model, resetAt ? '上游重置：' + fmtLocalDateTime(resetAt) : '上游重置：时间未知'];
   if (until && resetAt && until < resetAt) {
     // 双时钟（issue #171 问题二）：黄框出现/消失由 until 决定（网关为防超长
