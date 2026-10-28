@@ -8,12 +8,12 @@ import "testing"
 // agent 提示词通过渠道校验——不换就只能靠降级把 system 整段换成中性文本。
 func TestSanitizeDeepSeekHarnessBrand(t *testing.T) {
 	in := "You are an AI agent powered by DeepSeek Harness."
-	want := "You are an AI agent powered by DeepSeek."
+	want := "You are an AI agent powered by DSH."
 	if got := sanitizeText(in); got != want {
 		t.Errorf("sanitizeText(%q) = %q, want %q", in, got, want)
 	}
 	in2 := "DeepSeek Harness checkout. DeepSeek Harness Web GUI."
-	want2 := "DeepSeek checkout. DeepSeek Web GUI."
+	want2 := "DSH checkout. DSH Web GUI."
 	if got := sanitizeText(in2); got != want2 {
 		t.Errorf("sanitizeText(%q) = %q, want %q", in2, got, want2)
 	}

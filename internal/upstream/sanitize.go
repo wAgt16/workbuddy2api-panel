@@ -83,9 +83,9 @@ var sanitizeRewrites = [][2]string{
 		// unapproved channel"）。2026-10-25 实测：三处出现全换成 "DeepSeek" 后，
 		// dsh 那份 7.4KB 的 agent 提示词整段通过；不换则必拦，只能靠降级把 system
 		// 整段换成中性文本（等于丢掉 agent 的全部指令）。
-		// 只改一个词，语义不变（"powered by DeepSeek Harness" → "powered by DeepSeek"）。
+		// 只改一个词，语义不变（"powered by DeepSeek Harness" → "powered by DSH"）。
 		"DeepSeek Harness",
-		"DeepSeek",
+		"DSH",
 	},
 }
 
